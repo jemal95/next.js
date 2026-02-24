@@ -830,7 +830,10 @@ async function generateStagedDynamicFlightRenderResult(
       return dynamicStream
     },
     () => {
-      finishStaleTimeTracking(staleTimeIterable)
+      // This is a separate task that doesn't advance a stage. It forces
+      // draining the microtask queue so that the stale time iterable is closed
+      // before we advance to the dynamic stage.
+      void finishStaleTimeTracking(staleTimeIterable)
     },
     () => {
       stageController.advanceStage(RenderStage.Dynamic)
@@ -3579,7 +3582,7 @@ async function countStaticStageBytes(
   let byteLength = 0
   const reader = stream.getReader()
 
-  stageController.waitForStage(RenderStage.EarlyRuntime).then(() => {
+  stageController.onStage(RenderStage.EarlyRuntime, () => {
     reader.cancel()
   })
 
