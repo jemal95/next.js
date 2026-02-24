@@ -1586,7 +1586,7 @@ async function fetchMissingDynamicData(
         ({ headVaryParams, staleAt }) =>
           writeStaticStageResponseIntoCache(
             now,
-            staticStageData,
+            staticStageData.response,
             result.responseHeaders,
             headVaryParams,
             staleAt,
