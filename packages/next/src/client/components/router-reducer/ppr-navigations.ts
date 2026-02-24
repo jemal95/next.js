@@ -141,7 +141,8 @@ export function createInitialCacheNodeForHydration(
     null,
     null,
     false,
-    accumulation
+    accumulation,
+    false
   )
   return task
 }
@@ -187,7 +188,8 @@ export function startPPRNavigation(
   seedData: CacheNodeSeedData | null,
   seedHead: HeadData | null,
   isSamePageNavigation: boolean,
-  accumulation: NavigationRequestAccumulation
+  accumulation: NavigationRequestAccumulation,
+  isRouteFullyStatic: boolean = false
 ): NavigationTask | null {
   const didFindRootLayout = false
   const parentNeedsDynamicRequest = false
@@ -213,7 +215,8 @@ export function startPPRNavigation(
     parentNeedsDynamicRequest,
     oldRootRefreshState,
     parentRefreshState,
-    accumulation
+    accumulation,
+    isRouteFullyStatic
   )
 }
 
@@ -234,7 +237,8 @@ function updateCacheNodeOnNavigation(
   parentNeedsDynamicRequest: boolean,
   oldRootRefreshState: RefreshState,
   parentRefreshState: RefreshState | null,
-  accumulation: NavigationRequestAccumulation
+  accumulation: NavigationRequestAccumulation,
+  isRouteFullyStatic: boolean
 ): NavigationTask | null {
   // Check if this segment matches the one in the previous route.
   const oldSegment = oldRouterState[0]
@@ -296,7 +300,8 @@ function updateCacheNodeOnNavigation(
       parentSegmentPath,
       parentParallelRouteKey,
       parentNeedsDynamicRequest,
-      accumulation
+      accumulation,
+      isRouteFullyStatic
     )
   }
 
@@ -374,7 +379,8 @@ function updateCacheNodeOnNavigation(
       seedRsc,
       newMetadataVaryPath,
       seedHead,
-      freshness
+      freshness,
+      isRouteFullyStatic
     )
     newCacheNode = result.cacheNode
     needsDynamicRequest = result.needsDynamicRequest
@@ -501,7 +507,8 @@ function updateCacheNodeOnNavigation(
         parentNeedsDynamicRequest || needsDynamicRequest,
         oldRootRefreshState,
         refreshState,
-        accumulation
+        accumulation,
+        isRouteFullyStatic
       )
 
       if (taskChild === null) {
@@ -570,7 +577,8 @@ function createCacheNodeOnNavigation(
   parentSegmentPath: FlightSegmentPath | null,
   parentParallelRouteKey: string | null,
   parentNeedsDynamicRequest: boolean,
-  accumulation: NavigationRequestAccumulation
+  accumulation: NavigationRequestAccumulation,
+  isRouteFullyStatic: boolean
 ): NavigationTask {
   // Same traversal as updateCacheNodeNavigation, but simpler. We switch to this
   // path once we reach the part of the tree that was not in the previous route.
@@ -617,7 +625,8 @@ function createCacheNodeOnNavigation(
     seedRsc,
     newMetadataVaryPath,
     seedHead,
-    freshness
+    freshness,
+    isRouteFullyStatic
   )
   const newCacheNode = result.cacheNode
   const needsDynamicRequest = result.needsDynamicRequest
@@ -651,7 +660,8 @@ function createCacheNodeOnNavigation(
         segmentPath,
         parallelRouteKey,
         parentNeedsDynamicRequest || needsDynamicRequest,
-        accumulation
+        accumulation,
+        isRouteFullyStatic
       )
 
       taskChildren.set(parallelRouteKey, taskChild)
@@ -868,7 +878,8 @@ function createCacheNodeForSegment(
   seedRsc: React.ReactNode | null,
   metadataVaryPath: PageVaryPath | null,
   seedHead: HeadData | null,
-  freshness: FreshnessPolicy
+  freshness: FreshnessPolicy,
+  isRouteFullyStatic: boolean
 ): { cacheNode: CacheNode; needsDynamicRequest: boolean } {
   // Construct a new CacheNode using data from the BFCache, the client's
   // Segment Cache, or seeded from a server response.
@@ -1030,6 +1041,14 @@ function createCacheNodeForSegment(
     }
   }
 
+  // When the route is fully static and we have cached segment data,
+  // treat it as complete — no dynamic follow-up needed. If the cached
+  // data is null (stale, evicted, or failed), we fall through to the
+  // dynamic request path.
+  if (isRouteFullyStatic && cachedRsc !== null) {
+    isCachedRscPartial = false
+  }
+
   // Now combine the cached data with the seed data to determine what we can
   // render immediately, versus what needs to stream in later.
 
@@ -1117,6 +1136,13 @@ function createCacheNodeForSegment(
           }
         }
       }
+    }
+
+    // Same override as the segment check above: the server conservatively marks
+    // the head as partial, but for a fully static route with a cached head
+    // entry, no dynamic follow-up is needed.
+    if (isRouteFullyStatic && cachedHead !== null) {
+      isCachedHeadPartial = false
     }
 
     if (process.env.__NEXT_OPTIMISTIC_ROUTING && isCachedHeadPartial) {
@@ -1549,8 +1575,13 @@ async function fetchMissingDynamicData(
     }
 
     if (routeCacheEntry !== null && result.staticStageData !== null) {
+      // Update the route entry so future navigations to this route can skip the
+      // dynamic follow-up when reading from the segment cache.
+      routeCacheEntry.isFullyStatic = result.staticStageData.isFullyStatic
+
       const now = Date.now()
       const { staticStageData } = result
+
       processStaticStageResponse(now, staticStageData.response).then(
         ({ headVaryParams, staleAt }) =>
           writeStaticStageResponseIntoCache(
