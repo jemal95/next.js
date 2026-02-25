@@ -761,7 +761,7 @@ async function exportAppImpl(
         debuggerPortOffset: getNextBuildDebuggerPortOffset({
           kind: 'export-page',
         }),
-        numberOfWorkers: options.numWorkers,
+        numberOfWorkers: Math.min(options.numWorkers, totalExportPaths + 1),
         progress,
       })
     }
